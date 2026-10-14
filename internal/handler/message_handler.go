@@ -153,16 +153,11 @@ func (h *MessageHandler) Audio() http.HandlerFunc {
 			return
 		}
 
-		// Range-запросы не считаем: одно прослушивание в потоковом плеере — это
-		// пачка догрузок хвоста, и счётчик показывал бы их, а не людей. Открытие
-		// записи — это всегда первый запрос, без Range.
-		if r.Header.Get("Range") == "" {
-			// Журнал не должен мешать работе: не записалась отметка — человек всё
-			// равно слушает обращение. Аудио тут продукт, учёт — бухгалтерия.
-			if err := h.repo.AddPlay(r.Context(), message.ID, userID, time.Now().UTC()); err != nil {
-				slog.Error("Не удалось записать отметку о прослушивании",
-					"message_id", message.ID, "user_id", userID, "error", err)
-			}
+		// Считаем и Range-запросы: иначе «Range: bytes=0-» отдаёт весь файл без
+		// следа в журнале. Догрузки хвоста схлопывает AddPlay (окно 60 с).
+		if err := h.repo.AddPlay(r.Context(), message.ID, userID, time.Now().UTC()); err != nil {
+			slog.Error("Не удалось записать отметку о прослушивании",
+				"message_id", message.ID, "user_id", userID, "error", err)
 		}
 
 		// no-store, а не max-age: с кэшем повторное открытие в пределах часа не
