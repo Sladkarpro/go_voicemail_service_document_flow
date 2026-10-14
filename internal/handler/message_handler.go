@@ -25,12 +25,13 @@ const (
 )
 
 type MessageHandler struct {
-	repo     *repository.MessageRepository
-	audioDir string
+	repo            *repository.MessageRepository
+	audioDir        string
+	companyLocation *time.Location
 }
 
-func NewMessageHandler(repo *repository.MessageRepository, audioDir string) *MessageHandler {
-	return &MessageHandler{repo: repo, audioDir: audioDir}
+func NewMessageHandler(repo *repository.MessageRepository, audioDir string, companyLocation *time.Location) *MessageHandler {
+	return &MessageHandler{repo: repo, audioDir: audioDir, companyLocation: companyLocation}
 }
 
 type messageResponse struct {
@@ -102,7 +103,7 @@ func present(m *model.Message) messageResponse {
 
 func (h *MessageHandler) List() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		filter, err := parseFilter(r)
+		filter, err := parseFilter(r, h.companyLocation)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -411,7 +412,7 @@ func (h *MessageHandler) load(w http.ResponseWriter, r *http.Request) (*model.Me
 	return message, true
 }
 
-func parseFilter(r *http.Request) (repository.Filter, error) {
+func parseFilter(r *http.Request, location *time.Location) (repository.Filter, error) {
 	query := r.URL.Query()
 
 	filter := repository.Filter{
@@ -433,12 +434,12 @@ func parseFilter(r *http.Request) (repository.Filter, error) {
 
 	var err error
 	if raw := query.Get("dateFrom"); raw != "" {
-		if filter.From, err = parseDate(raw, false); err != nil {
+		if filter.From, err = parseDate(raw, false, location); err != nil {
 			return filter, errors.New("Некорректная дата в dateFrom")
 		}
 	}
 	if raw := query.Get("dateTo"); raw != "" {
-		if filter.To, err = parseDate(raw, true); err != nil {
+		if filter.To, err = parseDate(raw, true, location); err != nil {
 			return filter, errors.New("Некорректная дата в dateTo")
 		}
 	}
@@ -449,17 +450,17 @@ func parseFilter(r *http.Request) (repository.Filter, error) {
 // parseDate принимает и RFC3339, и просто дату из календаря на фронте.
 // Для верхней границы день расширяется до конца суток, иначе "по 24 августа"
 // отсекало бы всё, что пришло после полуночи.
-func parseDate(raw string, endOfDay bool) (time.Time, error) {
+func parseDate(raw string, endOfDay bool, location *time.Location) (time.Time, error) {
 	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
 		return parsed.UTC(), nil
 	}
 
-	parsed, err := time.Parse("2006-01-02", raw)
+	parsed, err := time.ParseInLocation("2006-01-02", raw, location)
 	if err != nil {
 		return time.Time{}, err
 	}
 	if endOfDay {
-		parsed = parsed.Add(24*time.Hour - time.Second)
+		parsed = parsed.AddDate(0, 0, 1).Add(-time.Second)
 	}
 
 	return parsed.UTC(), nil
